@@ -5,6 +5,4 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-add_lunch_combo omni_kyoto-user
-add_lunch_combo omni_kyoto-userdebug
-add_lunch_combo omni_kyoto-eng
+# Reserved
