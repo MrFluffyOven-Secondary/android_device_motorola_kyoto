@@ -6,6 +6,11 @@
 #
 
 LOCAL_PATH := device/motorola/kyoto
+
+# API levels
+PRODUCT_SHIPPING_API_LEVEL := 30
+PRODUCT_TARGET_VNDK_VERSION := 30
+
 # A/B
 AB_OTA_POSTINSTALL_CONFIG += \
     RUN_POSTINSTALL_system=true \
@@ -21,7 +26,7 @@ PRODUCT_PACKAGES += \
 PRODUCT_PACKAGES += \
     bootctrl.mt6853
 
-PRODUCT_STATIC_BOOT_CONTROL_HAL := \
+#PRODUCT_STATIC_BOOT_CONTROL_HAL := \
     bootctrl.mt6853 \
     libgptutils \
     libz \
