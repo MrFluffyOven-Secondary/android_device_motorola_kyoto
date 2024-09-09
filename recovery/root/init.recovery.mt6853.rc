@@ -1,8 +1,45 @@
-/import android.hardware.boot@1.2-service.rc
+import /tee.rc
+import /trustonic.rc
 
 on init
-    setprop sys.usb.configfs 1
-    setprop sys.usb.ffs.aio_compat 1
+    wait /dev/block/platform/bootdevice
+    symlink /dev/block/platform/bootdevice /dev/block/bootdevice
+    export LD_LIBRARY_PATH /vendor/lib64:/vendor/lib64/hw:/system/lib64:/system/lib64/hw:/sbin
+
+on fs
+    setprop crypto.ready 1
+
+service gatekeeper-1-0 /vendor/bin/hw/android.hardware.gatekeeper@1.0-service
+    interface android.hardware.gatekeeper@1.0::IGatekeeper default
+    class hal
+    user root
+    group root
+    setenv LD_LIBRARY_PATH /system/lib64:/vendor/lib64:/vendor/lib64/hw:/system/lib64/hw
+    seclabel u:r:recovery:s0
+
+service keymaster-4-1-trustonic /system/bin/android.hardware.keymaster@4.1-service.trustonic
+    interface android.hardware.keymaster@4.0::IKeymasterDevice default
+    interface android.hardware.keymaster@4.1::IKeymasterDevice default
+    user root
+    group root drmrpc
+    setenv LD_LIBRARY_PATH /system/lib64:/vendor/lib64:/vendor/lib64/hw:/system/lib64/hw
+    seclabel u:r:recovery:s0
+
+service keystore_auth /system/bin/keystore_auth
+    user system
+    group root
+    setenv LD_LIBRARY_PATH /vendor/lib64:/vendor/lib:/system/lib64:/system/lib:/sbin
+    seclabel u:r:recovery:s0
+
+on post-fs
+    start mtk.plpath.utils.link
+
+service mtk.plpath.utils.link /system/bin/mtk_plpath_utils
+    class main
+    user root
+    group root system
+    setenv LD_LIBRARY_PATH /system/lib64:/vendor/lib64:/vendor/lib64/hw:/system/lib64/hw:/sbin
+    seclabel u:r:recovery:s0
 
 on fs && property:ro.debuggable=0
     # distinguish USB shoulde connect or not, i.e. CDP vs SDP
@@ -17,8 +54,6 @@ on post-fs
     symlink /dev/block/sdb /dev/block/mmcblk0boot1
     symlink /dev/block/mmcblk0boot0 /dev/block/platform/bootdevice/by-name/preloader_a
     symlink /dev/block/mmcblk0boot1 /dev/block/platform/bootdevice/by-name/preloader_b
-    symlink /dev/block/mmcblk0boot0 /dev/block/by-name/preloader_a
-    symlink /dev/block/mmcblk0boot1 /dev/block/by-name/preloader_b
 
     # Support A/B feature for combo emmc and ufs OTA update
     symlink /dev/block/platform/bootdevice/by-name/preloader_a /dev/block/platform/bootdevice/by-name/preloader_emmc_a
@@ -38,3 +73,62 @@ on post-fs
     symlink /dev/block/mapper/pl_b /dev/block/by-name/preloader_raw_b
     symlink /dev/block/mapper/pl_a /dev/block/platform/bootdevice/by-name/preloader_raw_a
     symlink /dev/block/mapper/pl_b /dev/block/platform/bootdevice/by-name/preloader_raw_b
+
+    chown system system /data
+    chmod 0771 /data
+    restorecon_recursive /data
+    mkdir /data/vendor 0771 system system encryption=Require
+    mkdir /data/vendor_ce 0771 system system encryption=None
+    mkdir /data/vendor_de 0771 system system encryption=None
+    mkdir /data/misc 0771 system system encryption=None
+    restorecon_recursive /data/misc
+    # Create /data/vendor/key_provisioning dir and get proper encryption policy installed
+    # Key Installation
+    mkdir /data/vendor/key_provisioning 0771 system system
+    installkey /data
+
+service trustlet_backup /vendor/bin/init.mmi.backup.trustlet.sh
+    class main
+    user system
+    group system
+    oneshot
+    disabled
+
+on property:sys.boot_completed=1
+    start trustlet_backup
+
+on property:ro.crypto.state=encrypted && property:ro.crypto.type=file
+    install_keyring
+    setprop crypto.ready 1
+
+on property:hwservicemanager.ready=true && property:crypto.ready=1
+    start mobicore
+    start keystore2
+    start gatekeeper-1-0
+    start keymaster-4-1-trustonic
+
+on property:twrp.all.users.decrypted=true
+    setprop crypto.ready 0
+    stop mobicore
+    stop gatekeeper-1-0
+    stop keymaster-4-1-trustonic
+
+on property:ro.crypto.state=unsupported
+    setprop crypto.ready 0
+    stop mobicore
+    stop gatekeeper-1-0
+    stop keymaster-4-1-trustonic
+
+on property:ro.crypto.state=unencrypted
+    setprop crypto.ready 0
+    stop mobicore
+    stop gatekeeper-1-0
+    stop keymaster-4-1-trustonic
+
+# health and boot hal & Final chance to load TS drivers (Issues related to A13)
+on boot
+    start health-hal-2-1
+    start vendor.boot-hal-1-2
+    insmod /vendor/lib/modules/focaltech_mtk_mmi.ko
+    insmod /vendor/lib/modules/mtk_tpd_mmi.ko
+    insmod /vendor/lib/modules/sensors_class.ko
